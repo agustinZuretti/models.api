@@ -1,8 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from ollama import ollama
+import ollama
 from ..models.conversation import Conversation
-
-
 
 router = APIRouter()
 
@@ -17,10 +15,10 @@ conversation_tags_metadata = [
         "name": "Models",
         "description": "Get list of models available."    
     }
-    
+       
 ]
 
-@router.get("/conversation/", tags=["conversation"])
+@router.post("/conversation/", tags=["Conversations"])
 async def npc_response(conversation: Conversation | None = Conversation(**{"role": "user", "content": "Hello"})):
     try:
         
@@ -39,6 +37,6 @@ async def npc_response(conversation: Conversation | None = Conversation(**{"role
     return stream
 
 
-@router.get("/models/", tags=["models"])
+@router.get("/models/", tags=["Models"])
 async def get_models():
     return {"models": ollama.list()}
