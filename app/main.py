@@ -3,10 +3,9 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from src.services.transcriber import router as transcriber_router
 from src.services.conversations import router as conversation_router
 from src.services.conversations import conversation_tags_metadata as tags_conversation
-from src.services.transcriber import transcriber_tags_metadata
 import uvicorn
 
-PORT = 8080
+PORT = 8000
 
 app = FastAPI(docs_url="/docs", redoc_url=None)
 
@@ -23,5 +22,5 @@ async def root():
     return {"message": "Hello World"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="192.168.0.238", port=PORT)
     print(f"Swagger UI available at http://localhost:{PORT}/docs")

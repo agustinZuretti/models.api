@@ -40,3 +40,20 @@ async def npc_response(conversation: Conversation | None = Conversation(**{"role
 @router.get("/models/", tags=["Models"])
 async def get_models():
     return {"models": ollama.list()}
+
+
+async def generate_response_from_model(transcription: str):
+    try:
+        stream = ollama.chat(model='phi3', messages=[
+        {
+        'role': 'user',
+        'content': transcription,
+        'keep_alive:': '-1'
+        },
+
+    ])
+    except Exception as e: 
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    print("stream", stream)
+    return stream['message']['content']

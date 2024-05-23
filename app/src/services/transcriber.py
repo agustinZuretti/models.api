@@ -1,48 +1,86 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
-from whisper import load_model
+from fastapi import WebSocket, WebSocketDisconnect, APIRouter
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
+from whisper import load_model
+import tempfile
+import time
+from scipy.io.wavfile import write
+import numpy as np
+from .conversations import generate_response_from_model
 
-app = FastAPI()
 router = APIRouter()
 
-transcriber_tags_metadata = [
-    {
-        "name": "Transcriber",
-        "description": "Transcribe audio from a WebSocket connection.",
-    }
-]
+async def transcribe_audio(data: bytes):
+    print("entre")
+    model = load_model("base")  
+    
+    
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        audio_array = np.frombuffer(data, dtype=np.int16)
+        write(tmp.name, 48000, audio_array)  
+        tmp.flush()
+        print("Archivo temporal creado")
 
-# Cargamos el modelo de Whisper una vez
-model = load_model("base")
+        
+        # with open("temporal.wav", "wb") as f:
+        #     f.write(tmp.name)
+        print("Archivo temporal guardado")
+        start_time = time.time()
+        try:
+            transcription = model.transcribe(tmp.name)
+            print(type(transcription), transcription)
+        except Exception as e:
+            print(f"Error durante la transcripción: {e}")
+            transcription = "Transcripción falló debido a un error"
+        
+        end_time = time.time()
+        print(f"Transcripción recibida: {transcription}")
+        print(f"Tiempo de transcripción: {end_time - start_time:.2f} segundos")
+        
+        return transcription
 
-async def transcribe_audio(websocket: WebSocket, queue: asyncio.Queue):
-    while True:
-        data = await queue.get()
-        if data is None:
-            break
-        # Transcribimos el audio
-        result = model.transcribe(data)
-        # Enviamos la transcripción de vuelta al cliente
-        await websocket.send_text(result['text'])
-        queue.task_done()
+from fastapi import WebSocket, WebSocketDisconnect, APIRouter
+
+router = APIRouter()
 
 @router.websocket("/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
     await websocket.accept()
-    queue = asyncio.Queue()
-    
-    # Usamos un ProcessPoolExecutor para manejar la transcripción en un proceso separado
-    loop = asyncio.get_event_loop()
-    transcriber_task = loop.run_in_executor(None, transcribe_audio, websocket, queue)
-
     try:
         while True:
-            data = await websocket.receive_bytes()
-            await queue.put(data)
+            data = await websocket.receive()
+            print(type(data))
+            print(data.keys())
+            print(data["type"], data["bytes"][:10])
+
+            if data["type"] == "websocket.receive":
+                audio_bytes = data["bytes"]
+                try:
+                    if isinstance(audio_bytes, (bytes, bytearray)):
+                        transcription = await transcribe_audio(audio_bytes)
+                        print(f"Transcription: {transcription}")
+                        model_response = await generate_response_from_model(transcription['text'])
+
+                        print(f"Sending model response: {model_response}")
+                        await websocket.send_text(model_response)
+                    else:
+                        raise ValueError("El dato recibido no es de tipo bytes")
+                except Exception as e:
+                    print(f"Error al procesar audio: {e}")
+                    await websocket.send_text(f"Error al procesar audio: {e}")
+            elif data["type"] == "websocket.disconnect":
+                code = data["code"]
+                print(f"Cliente desconectado con código: {code}")
+                break
+            else:
+                print(f"Datos recibidos no contienen 'bytes': {data['type']}")
     except WebSocketDisconnect:
         print("Cliente desconectado")
-        await queue.put(None)  # Indicamos al proceso que termine
-        await transcriber_task  # Esperamos a que el transcriptor termine
+    except Exception as e:
+        print(f"Error en WebSocket: {e}")
+    finally:
+        try:
+            if not websocket.client_state.closed:
+                await websocket.close()
+        except Exception as e:
+            print(f"Error al cerrar WebSocket: {e}")
 
-app.include_router(router)
